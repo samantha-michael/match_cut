@@ -1,9 +1,6 @@
 import streamlit as st
 import cv2
 import os
-import re
-import shutil
-import tempfile
 import numpy as np
 from pathlib import Path
 from contextlib import contextmanager
@@ -14,7 +11,8 @@ from huggingface_hub import login
 import tensorflow as tf
 from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Lambda
 from tensorflow.keras.models import Model, Sequential
-from yt_dlp import YoutubeDL
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 # Constants
 MAX_VIDEO_LENGTH_MINUTES = 10
@@ -22,39 +20,6 @@ FRAME_BATCH_SIZE = 32
 INPUT_SHAPE = (224, 224, 3)
 MODEL_REPO_ID = "samanthajmichael/siamese_model.h5"
 MODEL_FILENAME = "siamese_model.h5"
-
-
-def main():
-    st.set_page_config(page_title="Match Cutting with YouTube", layout="wide")
-    st.write("Debug: Starting app")  # Streamlit debug output
-    init_session_state()
-    
-    # Load environment variables and authenticate
-    load_dotenv()
-    token = os.getenv('HUGGING_FACE_HUB_TOKEN')
-    st.write(f"Debug: Token found: {bool(token)}")  # Streamlit debug output
-    
-    if not token:
-        st.error("Hugging Face token not found in environment variables")
-        return
-    
-    try:
-        st.write("Debug: Attempting Hugging Face login")  # Streamlit debug output
-        login(token=token)
-        st.write("Debug: Hugging Face login successful")  # Streamlit debug output
-    except Exception as e:
-        st.error(f"Failed to authenticate with Hugging Face: {str(e)}")
-        st.write(f"Debug: Login error: {str(e)}")  # Streamlit debug output
-        return
-
-    try:
-        st.write("Debug: Loading model")  # Streamlit debug output
-        model = load_siamese_model()
-        st.write("Debug: Model loaded successfully")  # Streamlit debug output
-    except Exception as e:
-        st.error(f"Failed to initialize model: {str(e)}")
-        st.write(f"Debug: Model loading error: {str(e)}")  # Streamlit debug output
-        return
 
 # Initialize session state
 def init_session_state():
@@ -124,28 +89,33 @@ def load_siamese_model():
         raise
 
 def get_youtube_stream_url(video_id: str) -> str:
-    """Get YouTube video stream URL with error handling."""
+    """Get YouTube video URL using the YouTube Data API."""
     try:
-        ydl_opts = {
-            'format': 'best[ext=mp4]',
-            'quiet': True,
-            'max_filesize': 1024 * 1024 * 100,  # 100MB limit
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate',
-            }
-        }
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=False)
-            duration = info.get('duration', 0)
-            if duration > MAX_VIDEO_LENGTH_MINUTES * 60:
-                raise ValueError(f"Video exceeds maximum length of {MAX_VIDEO_LENGTH_MINUTES} minutes")
-            return info['url']
+        # Initialize the YouTube API client
+        youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
+        
+        # Get video details
+        request = youtube.videos().list(
+            part="snippet,contentDetails",
+            id=video_id
+        )
+        response = request.execute()
+        
+        if not response['items']:
+            raise ValueError("Video not found")
+            
+        # Parse duration to check video length
+        duration = response['items'][0]['contentDetails']['duration']
+        # Convert duration from ISO 8601 format if needed
+        
+        # Return the standard YouTube watch URL
+        return f"https://www.youtube.com/watch?v={video_id}"
+        
+    except HttpError as e:
+        raise ValueError(f"YouTube API error: {str(e)}")
     except Exception as e:
         raise ValueError(f"Failed to process YouTube video: {str(e)}")
-        
+
 def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
     """Extract frames from video stream with progress bar."""
     frames = []
@@ -249,24 +219,35 @@ def create_video_clip(frames: List[np.ndarray], fps: float = 30) -> Optional[byt
 
 def main():
     st.set_page_config(page_title="Match Cutting with YouTube", layout="wide")
+    st.write("Debug: Starting app")  # Debug output
     init_session_state()
     
     # Load environment variables and authenticate
     load_dotenv()
     token = os.getenv('HUGGING_FACE_HUB_TOKEN')
+    youtube_api_key = os.getenv('YOUTUBE_API_KEY')
+    
     if not token:
         st.error("Hugging Face token not found in environment variables")
         return
     
+    if not youtube_api_key:
+        st.error("YouTube API key not found in environment variables")
+        return
+    
     try:
+        st.write("Debug: Attempting Hugging Face login")  # Debug output
         login(token=token)
+        st.write("Debug: Hugging Face login successful")  # Debug output
     except Exception as e:
         st.error(f"Failed to authenticate with Hugging Face: {str(e)}")
         return
 
     # Load model
     try:
+        st.write("Debug: Loading model")  # Debug output
         model = load_siamese_model()
+        st.write("Debug: Model loaded successfully")  # Debug output
     except Exception as e:
         st.error(f"Failed to initialize model: {str(e)}")
         return
@@ -290,8 +271,8 @@ def main():
         if video_id != st.session_state.processed_video_id:
             try:
                 with st.spinner("Processing YouTube video..."):
-                    stream_url = get_youtube_stream_url(video_id)
-                    frames, frame_indices, frame_rate, total_frames = extract_frames_from_stream(stream_url)
+                    video_url = get_youtube_stream_url(video_id)
+                    frames, frame_indices, frame_rate, total_frames = extract_frames_from_stream(video_url)
                     st.session_state.processed_video_id = video_id
                     st.session_state.frames = frames
                     st.session_state.frame_indices = frame_indices
