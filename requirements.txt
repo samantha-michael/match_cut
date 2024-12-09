@@ -1,8 +1,7 @@
-google-api-python-client
+google-api-python-client==2.108.0
 streamlit==1.31.0
 opencv-python-headless==4.8.1.78
 numpy==1.24.3
-pytube==12.1.3
 python-dotenv==1.0.0
 huggingface-hub==0.20.1
 tensorflow-cpu==2.14.0
@@ -10,3 +9,9 @@ yt-dlp==2023.11.16
 Pillow==10.0.0
 moviepy==1.0.3
 requests==2.31.0
+shutil-which==3.0.0
+tensorflow-io-gcs-filesystem==0.34.0
+protobuf==4.25.1
+typing-extensions==4.8.0
+attrs==23.1.0
+packaging==23.2
