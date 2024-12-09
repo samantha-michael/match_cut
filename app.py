@@ -129,8 +129,7 @@ def get_youtube_stream_url(video_id: str) -> str:
         ydl_opts = {
             'format': 'best[ext=mp4]',
             'quiet': True,
-            'max_filesize': 1024 * 1024 * 100,  # 100MB limit
-            'cookiesfile': 'cookies.txt'  # Add this line
+            'max_filesize': 1024 * 1024 * 100  # 100MB limit
         }
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=False)
