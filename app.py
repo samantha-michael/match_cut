@@ -91,64 +91,109 @@ def load_siamese_model():
         st.error(f"Failed to load model: {str(e)}")
         raise
 
+from pytube import YouTube  # Add this import at the top of your file
+
 def get_youtube_stream_url(video_id: str) -> str:
-    """Get direct video stream URL from YouTube using simpler approach."""
+    """Get video stream URL using pytube with fallback options."""
     try:
+        # Create YouTube URL
         url = f"https://www.youtube.com/watch?v={video_id}"
+        
+        # Try pytube first
+        try:
+            st.info("Attempting to fetch video stream...")
+            yt = YouTube(url)
+            # Get the highest resolution progressive stream
+            stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+            if stream:
+                return stream.url
+        except Exception as pytube_error:
+            st.warning(f"PyTube attempt failed, trying alternative method...")
+            
+        # Fallback to yt-dlp if pytube fails
         ydl_opts = {
-            'format': 'best[ext=mp4]',  # Specifically request MP4 format
-            'quiet': True
+            'format': 'best[height<=720][ext=mp4]',
+            'quiet': True,
+            'no_warnings': True,
+            # Add cookies and user agent
+            'nocheckcertificate': True,
+            'extract_flat': False
         }
         
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            return info['url']
+            if info and 'url' in info:
+                return info['url']
+            
+        raise ValueError("Could not extract video URL from any method")
             
     except Exception as e:
         raise ValueError(f"Failed to get YouTube stream URL: {str(e)}")
 
 def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
-    """Extract frames from video stream with simplified approach."""
+    """Extract frames from video stream with improved error handling."""
     frames = []
     frame_indices = []
     
     try:
-        with video_capture(video_url) as cap:
-            frame_rate = cap.get(cv2.CAP_PROP_FPS)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            frame_interval = int(frame_rate * interval)
+        cap = cv2.VideoCapture(video_url)
+        if not cap.isOpened():
+            raise ValueError("Failed to open video stream. Please try a different video or resolution.")
             
-            if frame_interval < 1:
-                frame_interval = 1
-
-            # Create a placeholder for the progress bar
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+        frame_rate = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        if total_frames <= 0:
+            # If total_frames is not available, we'll count as we go
+            total_frames = float('inf')
+            frame_rate = 30  # Default frame rate
             
-            frame_count = 0
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                    
-                if frame_count % frame_interval == 0:
-                    # Convert BGR to RGB for proper display in Streamlit
-                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    frames.append(frame_rgb)
-                    frame_indices.append(frame_count)
-                    
-                    # Update progress
+        frame_interval = max(1, int(frame_rate * interval))
+        
+        # Create a placeholder for the progress bar
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        frame_count = 0
+        actual_frames = 0
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            if frame_count % frame_interval == 0:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames.append(frame_rgb)
+                frame_indices.append(frame_count)
+                actual_frames += 1
+                
+                # Update progress
+                if total_frames != float('inf'):
                     progress = min(frame_count / total_frames, 1.0)
                     progress_bar.progress(progress)
-                    status_text.text(f"Processed {frame_count}/{total_frames} frames")
-                    
-                frame_count += 1
-
-            status_text.text(f"Extracted {len(frames)} frames from the video.")
-            return frames, frame_indices, frame_rate, total_frames
+                
+                status_text.text(f"Processed frames: {actual_frames}")
+                
+            frame_count += 1
+            
+            # Add a safety limit to prevent processing extremely long videos
+            if frame_count > 30 * 60 * 5:  # 5 minutes at 30fps
+                st.warning("Video processing limited to first 5 minutes")
+                break
+        
+        cap.release()
+        
+        if not frames:
+            raise ValueError("No frames were extracted from the video")
+            
+        status_text.text(f"Successfully extracted {len(frames)} frames")
+        return frames, frame_indices, frame_rate, frame_count
         
     except Exception as e:
         st.error(f"Error extracting frames: {str(e)}")
+        if 'cap' in locals():
+            cap.release()
         return [], [], 0, 0
 
 def create_video_clip(frames: List[np.ndarray], fps: float = 30) -> Optional[bytes]:
