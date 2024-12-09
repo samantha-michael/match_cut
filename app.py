@@ -129,7 +129,8 @@ def get_youtube_stream_url(video_id: str) -> str:
         ydl_opts = {
             'format': 'best[ext=mp4]',
             'quiet': True,
-            'max_filesize': 1024 * 1024 * 100  # 100MB limit
+            'max_filesize': 1024 * 1024 * 100,  # 100MB limit
+            'cookiesfile': 'cookies.txt'  # Add this line
         }
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=False)
@@ -139,7 +140,7 @@ def get_youtube_stream_url(video_id: str) -> str:
             return info['url']
     except Exception as e:
         raise ValueError(f"Failed to process YouTube video: {str(e)}")
-
+        
 def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
     """Extract frames from video stream with progress bar."""
     frames = []
