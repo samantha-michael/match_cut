@@ -1,1 +1,1 @@
-web: streamlit run app_heroku.py --server.port=$PORT --server.address=0.0.0.0
+web: streamlit run --logger.level=debug app.py
