@@ -92,17 +92,12 @@ def load_siamese_model():
         raise
 
 def get_youtube_stream_url(video_id: str) -> str:
-    """Get direct video stream URL from YouTube."""
+    """Get direct video stream URL from YouTube using simpler approach."""
     try:
-        # Create YouTube URL
         url = f"https://www.youtube.com/watch?v={video_id}"
-        
-        # Use yt-dlp to get the best video stream URL
         ydl_opts = {
-            'format': 'best[height<=720]',  # Limit resolution to 720p for better performance
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False
+            'format': 'best[ext=mp4]',  # Specifically request MP4 format
+            'quiet': True
         }
         
         with YoutubeDL(ydl_opts) as ydl:
@@ -113,7 +108,7 @@ def get_youtube_stream_url(video_id: str) -> str:
         raise ValueError(f"Failed to get YouTube stream URL: {str(e)}")
 
 def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
-    """Extract frames from video stream with progress bar."""
+    """Extract frames from video stream with simplified approach."""
     frames = []
     frame_indices = []
     
@@ -127,7 +122,6 @@ def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[
                 frame_interval = 1
 
             # Create a placeholder for the progress bar
-            progress_text = "Extracting frames..."
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -150,11 +144,44 @@ def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[
                     
                 frame_count += 1
 
-        return frames, frame_indices, frame_rate, total_frames
+            status_text.text(f"Extracted {len(frames)} frames from the video.")
+            return frames, frame_indices, frame_rate, total_frames
         
     except Exception as e:
         st.error(f"Error extracting frames: {str(e)}")
         return [], [], 0, 0
+
+def create_video_clip(frames: List[np.ndarray], fps: float = 30) -> Optional[bytes]:
+    """Create video from frames with simplified codec handling."""
+    if not frames:
+        raise ValueError("No frames provided for video creation")
+
+    height, width, _ = frames[0].shape
+    temp_dir = tempfile.mkdtemp()
+    
+    try:
+        output_path = os.path.join(temp_dir, 'output.mp4')
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        
+        with st.spinner("Creating video..."):
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            
+            if out.isOpened():
+                for frame in frames:
+                    # Convert RGB back to BGR for OpenCV
+                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    out.write(frame_bgr)
+                out.release()
+                
+                # Verify the video file
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    with open(output_path, 'rb') as f:
+                        return f.read()
+                        
+        raise ValueError("Failed to create video")
+    
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 def find_similar_frames_batch(reference_image: np.ndarray, 
                             candidate_frames: List[np.ndarray], 
