@@ -94,10 +94,19 @@ def get_youtube_stream_url(video_id: str) -> str:
     """Get YouTube video stream URL using pytube."""
     try:
         url = f"https://www.youtube.com/watch?v={video_id}"
-        yt = YouTube(url)
+        
+        # Configure pytube with custom user agent
+        yt = YouTube(
+            url,
+            use_oauth=True,
+            allow_oauth_cache=True,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        )
         
         # Get the highest resolution stream
-        stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
+        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
         
         if not stream:
             raise ValueError("No suitable video stream found")
@@ -105,6 +114,7 @@ def get_youtube_stream_url(video_id: str) -> str:
         return stream.url
         
     except Exception as e:
+        st.write(f"Debug: YouTube error details: {str(e)}")  # Add debug output
         raise ValueError(f"Failed to process YouTube video: {str(e)}")
 
 def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
