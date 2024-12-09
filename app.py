@@ -95,15 +95,8 @@ def get_youtube_stream_url(video_id: str) -> str:
     try:
         url = f"https://www.youtube.com/watch?v={video_id}"
         
-        # Configure pytube with custom user agent
-        yt = YouTube(
-            url,
-            use_oauth=True,
-            allow_oauth_cache=True,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
-        )
+        # Create YouTube object
+        yt = YouTube(url)
         
         # Get the highest resolution stream
         stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
