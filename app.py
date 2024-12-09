@@ -12,7 +12,7 @@ import re
 import tensorflow as tf
 from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Lambda
 from tensorflow.keras.models import Model, Sequential
-from pytube import YouTube
+from yt_dlp import YoutubeDL
 
 # Constants
 MAX_VIDEO_LENGTH_MINUTES = 10
@@ -91,23 +91,27 @@ def load_siamese_model():
 from pytube import YouTube
 
 def get_youtube_stream_url(video_id: str) -> str:
-    """Get YouTube video stream URL using pytube."""
+    """Get YouTube video stream URL with error handling."""
     try:
-        url = f"https://www.youtube.com/watch?v={video_id}"
+        ydl_opts = {
+            'format': 'best[ext=mp4]',
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            }
+        }
         
-        # Create YouTube object
-        yt = YouTube(url)
-        
-        # Get the highest resolution stream
-        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-        
-        if not stream:
-            raise ValueError("No suitable video stream found")
+        url = f'https://www.youtube.com/watch?v={video_id}'
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if 'url' in info:
+                return info['url']
+            raise ValueError("Could not extract video URL")
             
-        return stream.url
-        
     except Exception as e:
-        st.write(f"Debug: YouTube error details: {str(e)}")  # Add debug output
+        st.write(f"Debug: YouTube error details: {str(e)}")
         raise ValueError(f"Failed to process YouTube video: {str(e)}")
 
 def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
