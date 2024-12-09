@@ -94,41 +94,50 @@ def load_siamese_model():
 from pytube import YouTube  # Add this import at the top of your file
 
 def get_youtube_stream_url(video_id: str) -> str:
-    """Get video stream URL using pytube with fallback options."""
+    """Get direct video stream URL from YouTube using simple approach."""
     try:
-        # Create YouTube URL
         url = f"https://www.youtube.com/watch?v={video_id}"
-        
-        # Try pytube first
-        try:
-            st.info("Attempting to fetch video stream...")
-            yt = YouTube(url)
-            # Get the highest resolution progressive stream
-            stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-            if stream:
-                return stream.url
-        except Exception as pytube_error:
-            st.warning(f"PyTube attempt failed, trying alternative method...")
-            
-        # Fallback to yt-dlp if pytube fails
         ydl_opts = {
-            'format': 'best[height<=720][ext=mp4]',
-            'quiet': True,
-            'no_warnings': True,
-            # Add cookies and user agent
-            'nocheckcertificate': True,
-            'extract_flat': False
+            'format': 'best[ext=mp4]',
+            'quiet': True
         }
         
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            if info and 'url' in info:
-                return info['url']
-            
-        raise ValueError("Could not extract video URL from any method")
+            return info['url']
             
     except Exception as e:
         raise ValueError(f"Failed to get YouTube stream URL: {str(e)}")
+
+def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
+    """Extract frames from video stream with progress bar."""
+    frames = []
+    frame_indices = []
+    
+    with video_capture(video_url) as cap:
+        frame_rate = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_interval = int(frame_rate * interval)
+        
+        if frame_interval < 1:
+            frame_interval = 1
+
+        progress_bar = st.progress(0)
+        frame_count = 0
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            if frame_count % frame_interval == 0:
+                frames.append(frame)
+                frame_indices.append(frame_count)
+                
+            frame_count += 1
+            progress_bar.progress(min(frame_count / total_frames, 1.0))
+
+    return frames, frame_indices, frame_rate, total_frames
 
 def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
     """Extract frames from video stream with improved error handling."""
