@@ -9,7 +9,6 @@ yt-dlp==2023.11.16
 Pillow==10.0.0
 moviepy==1.0.3
 requests==2.31.0
-shutil-which==3.0.0
 tensorflow-io-gcs-filesystem==0.34.0
 protobuf==4.25.1
 typing-extensions==4.8.0
