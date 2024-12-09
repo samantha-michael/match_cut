@@ -13,6 +13,9 @@ import tensorflow as tf
 from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Lambda
 from tensorflow.keras.models import Model, Sequential
 from yt_dlp import YoutubeDL
+import requests
+import tempfile
+from moviepy.editor import VideoFileClip
 
 # Constants
 MAX_VIDEO_LENGTH_MINUTES = 10
@@ -91,28 +94,50 @@ def load_siamese_model():
 from pytube import YouTube
 
 def get_youtube_stream_url(video_id: str) -> str:
-    """Get YouTube video stream URL with error handling."""
-    try:
-        ydl_opts = {
-            'format': 'best[ext=mp4]',
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': True,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            }
-        }
+    """Get video file URL by first getting a direct YouTube video URL."""
+    url = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+    
+    # Test the connection and video ID
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise ValueError("Invalid YouTube video ID or video not accessible")
         
-        url = f'https://www.youtube.com/watch?v={video_id}'
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if 'url' in info:
-                return info['url']
-            raise ValueError("Could not extract video URL")
+    # Return the video URL for display
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
+    """Extract frames from video file with progress bar."""
+    st.info("Please upload your video file")
+    video_file = st.file_uploader("Choose a video file", type=['mp4', 'mov', 'avi'])
+    
+    if not video_file:
+        return [], [], 0, 0
+        
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+    temp_file.write(video_file.read())
+    temp_file.close()
+    
+    try:
+        with VideoFileClip(temp_file.name) as clip:
+            frames = []
+            frame_indices = []
+            frame_rate = clip.fps
+            total_frames = int(clip.duration * frame_rate)
             
-    except Exception as e:
-        st.write(f"Debug: YouTube error details: {str(e)}")
-        raise ValueError(f"Failed to process YouTube video: {str(e)}")
+            progress_bar = st.progress(0)
+            frame_count = 0
+            
+            for t in range(0, int(clip.duration), interval):
+                frame = clip.get_frame(t)
+                frames.append(frame)
+                frame_indices.append(frame_count)
+                frame_count += 1
+                progress_bar.progress(min(t / clip.duration, 1.0))
+                
+            return frames, frame_indices, frame_rate, total_frames
+            
+    finally:
+        os.unlink(temp_file.name)
 
 def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
     """Extract frames from video stream with progress bar."""
