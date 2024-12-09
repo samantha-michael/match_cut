@@ -2,6 +2,7 @@ import streamlit as st
 import cv2
 import os
 import numpy as np
+import shutil
 from pathlib import Path
 from contextlib import contextmanager
 from typing import List, Tuple, Optional
@@ -15,7 +16,6 @@ from tensorflow.keras.models import Model, Sequential
 from yt_dlp import YoutubeDL
 import requests
 import tempfile
-from moviepy.editor import VideoFileClip
 
 # Constants
 MAX_VIDEO_LENGTH_MINUTES = 10
@@ -91,83 +91,70 @@ def load_siamese_model():
         st.error(f"Failed to load model: {str(e)}")
         raise
 
-from pytube import YouTube
-
 def get_youtube_stream_url(video_id: str) -> str:
-    """Get video file URL by first getting a direct YouTube video URL."""
-    url = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
-    
-    # Test the connection and video ID
-    response = requests.get(url)
-    if response.status_code != 200:
-        raise ValueError("Invalid YouTube video ID or video not accessible")
-        
-    # Return the video URL for display
-    return f"https://www.youtube.com/watch?v={video_id}"
-
-def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
-    """Extract frames from video file with progress bar."""
-    st.info("Please upload your video file")
-    video_file = st.file_uploader("Choose a video file", type=['mp4', 'mov', 'avi'])
-    
-    if not video_file:
-        return [], [], 0, 0
-        
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-    temp_file.write(video_file.read())
-    temp_file.close()
-    
+    """Get direct video stream URL from YouTube."""
     try:
-        with VideoFileClip(temp_file.name) as clip:
-            frames = []
-            frame_indices = []
-            frame_rate = clip.fps
-            total_frames = int(clip.duration * frame_rate)
+        # Create YouTube URL
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        
+        # Use yt-dlp to get the best video stream URL
+        ydl_opts = {
+            'format': 'best[height<=720]',  # Limit resolution to 720p for better performance
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False
+        }
+        
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info['url']
             
-            progress_bar = st.progress(0)
-            frame_count = 0
-            
-            for t in range(0, int(clip.duration), interval):
-                frame = clip.get_frame(t)
-                frames.append(frame)
-                frame_indices.append(frame_count)
-                frame_count += 1
-                progress_bar.progress(min(t / clip.duration, 1.0))
-                
-            return frames, frame_indices, frame_rate, total_frames
-            
-    finally:
-        os.unlink(temp_file.name)
+    except Exception as e:
+        raise ValueError(f"Failed to get YouTube stream URL: {str(e)}")
 
 def extract_frames_from_stream(video_url: str, interval: int = 1) -> Tuple[List[np.ndarray], List[int], float, int]:
     """Extract frames from video stream with progress bar."""
     frames = []
     frame_indices = []
     
-    with video_capture(video_url) as cap:
-        frame_rate = cap.get(cv2.CAP_PROP_FPS)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_interval = int(frame_rate * interval)
-        
-        if frame_interval < 1:
-            frame_interval = 1
+    try:
+        with video_capture(video_url) as cap:
+            frame_rate = cap.get(cv2.CAP_PROP_FPS)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            frame_interval = int(frame_rate * interval)
+            
+            if frame_interval < 1:
+                frame_interval = 1
 
-        progress_bar = st.progress(0)
-        frame_count = 0
-        
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-                
-            if frame_count % frame_interval == 0:
-                frames.append(frame)
-                frame_indices.append(frame_count)
-                
-            frame_count += 1
-            progress_bar.progress(min(frame_count / total_frames, 1.0))
+            # Create a placeholder for the progress bar
+            progress_text = "Extracting frames..."
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            frame_count = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                    
+                if frame_count % frame_interval == 0:
+                    # Convert BGR to RGB for proper display in Streamlit
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    frames.append(frame_rgb)
+                    frame_indices.append(frame_count)
+                    
+                    # Update progress
+                    progress = min(frame_count / total_frames, 1.0)
+                    progress_bar.progress(progress)
+                    status_text.text(f"Processed {frame_count}/{total_frames} frames")
+                    
+                frame_count += 1
 
-    return frames, frame_indices, frame_rate, total_frames
+        return frames, frame_indices, frame_rate, total_frames
+        
+    except Exception as e:
+        st.error(f"Error extracting frames: {str(e)}")
+        return [], [], 0, 0
 
 def find_similar_frames_batch(reference_image: np.ndarray, 
                             candidate_frames: List[np.ndarray], 
@@ -221,7 +208,9 @@ def create_video_clip(frames: List[np.ndarray], fps: float = 30) -> Optional[byt
                     
                     if out.isOpened():
                         for frame in frames:
-                            out.write(frame)
+                            # Convert RGB back to BGR for OpenCV
+                            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                            out.write(frame_bgr)
                         out.release()
                         
                         # Verify the video file
@@ -242,7 +231,6 @@ def create_video_clip(frames: List[np.ndarray], fps: float = 30) -> Optional[byt
 
 def main():
     st.set_page_config(page_title="Match Cutting with YouTube", layout="wide")
-    st.write("Debug: Starting app")  # Debug output
     init_session_state()
     
     # Load environment variables and authenticate
@@ -254,23 +242,15 @@ def main():
         st.error("Hugging Face token not found in environment variables")
         return
     
-    if not youtube_api_key:
-        st.error("YouTube API key not found in environment variables")
-        return
-    
     try:
-        st.write("Debug: Attempting Hugging Face login")  # Debug output
         login(token=token)
-        st.write("Debug: Hugging Face login successful")  # Debug output
     except Exception as e:
         st.error(f"Failed to authenticate with Hugging Face: {str(e)}")
         return
 
     # Load model
     try:
-        st.write("Debug: Loading model")  # Debug output
         model = load_siamese_model()
-        st.write("Debug: Model loaded successfully")  # Debug output
     except Exception as e:
         st.error(f"Failed to initialize model: {str(e)}")
         return
@@ -301,7 +281,7 @@ def main():
                     st.session_state.frame_indices = frame_indices
                     st.session_state.frame_rate = frame_rate
             except Exception as e:
-                st.error(str(e))
+                st.error(f"Error processing video: {str(e)}")
                 return
         else:
             frames = st.session_state.frames
