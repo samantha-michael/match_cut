@@ -89,31 +89,22 @@ def load_siamese_model():
         st.error(f"Failed to load model: {str(e)}")
         raise
 
+from pytube import YouTube
+
 def get_youtube_stream_url(video_id: str) -> str:
-    """Get YouTube video URL using the YouTube Data API."""
+    """Get YouTube video stream URL using pytube."""
     try:
-        # Initialize the YouTube API client
-        youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        yt = YouTube(url)
         
-        # Get video details
-        request = youtube.videos().list(
-            part="snippet,contentDetails",
-            id=video_id
-        )
-        response = request.execute()
+        # Get the highest resolution stream
+        stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
         
-        if not response['items']:
-            raise ValueError("Video not found")
+        if not stream:
+            raise ValueError("No suitable video stream found")
             
-        # Parse duration to check video length
-        duration = response['items'][0]['contentDetails']['duration']
-        # Convert duration from ISO 8601 format if needed
+        return stream.url
         
-        # Return the standard YouTube watch URL
-        return f"https://www.youtube.com/watch?v={video_id}"
-        
-    except HttpError as e:
-        raise ValueError(f"YouTube API error: {str(e)}")
     except Exception as e:
         raise ValueError(f"Failed to process YouTube video: {str(e)}")
 
