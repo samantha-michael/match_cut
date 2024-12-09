@@ -23,6 +23,39 @@ INPUT_SHAPE = (224, 224, 3)
 MODEL_REPO_ID = "samanthajmichael/siamese_model.h5"
 MODEL_FILENAME = "siamese_model.h5"
 
+
+def main():
+    st.set_page_config(page_title="Match Cutting with YouTube", layout="wide")
+    st.write("Debug: Starting app")  # Streamlit debug output
+    init_session_state()
+    
+    # Load environment variables and authenticate
+    load_dotenv()
+    token = os.getenv('HUGGING_FACE_HUB_TOKEN')
+    st.write(f"Debug: Token found: {bool(token)}")  # Streamlit debug output
+    
+    if not token:
+        st.error("Hugging Face token not found in environment variables")
+        return
+    
+    try:
+        st.write("Debug: Attempting Hugging Face login")  # Streamlit debug output
+        login(token=token)
+        st.write("Debug: Hugging Face login successful")  # Streamlit debug output
+    except Exception as e:
+        st.error(f"Failed to authenticate with Hugging Face: {str(e)}")
+        st.write(f"Debug: Login error: {str(e)}")  # Streamlit debug output
+        return
+
+    try:
+        st.write("Debug: Loading model")  # Streamlit debug output
+        model = load_siamese_model()
+        st.write("Debug: Model loaded successfully")  # Streamlit debug output
+    except Exception as e:
+        st.error(f"Failed to initialize model: {str(e)}")
+        st.write(f"Debug: Model loading error: {str(e)}")  # Streamlit debug output
+        return
+
 # Initialize session state
 def init_session_state():
     if 'selected_indices' not in st.session_state:
